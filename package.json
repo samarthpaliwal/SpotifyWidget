@@ -1,0 +1,53 @@
+{
+  "name": "spotify-widget",
+  "productName": "SpotifyWidget",
+  "version": "1.0.0",
+  "description": "A floating, vinyl-style Now Playing widget for the Spotify desktop app on macOS",
+  "main": "dist/main/main.js",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "clean": "rm -rf dist out",
+    "bundle": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "start": "npm run bundle && electron .",
+    "build": "npm run bundle && electron-builder --mac --dir && node scripts/sign.mjs",
+    "build:dmg": "npm run bundle && electron-builder --mac && node scripts/sign.mjs",
+    "harness": "python3 -m http.server 8765 --bind 127.0.0.1",
+    "palette-test": "esbuild src/main/palette.ts --bundle --platform=node --format=cjs --external:electron --outfile=.cache/palette-test-bundle.js --log-level=error && electron scripts/palette-test.cjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "electron": "^45.2.2",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.7.2"
+  },
+  "build": {
+    "appId": "dev.local.spotify-widget",
+    "productName": "SpotifyWidget",
+    "directories": {
+      "output": "out"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.music",
+      "target": [
+        "dir"
+      ],
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "identity": null,
+      "extendInfo": {
+        "LSUIElement": true,
+        "NSAppleEventsUsageDescription": "SpotifyWidget reads what is playing in Spotify and controls playback (play/pause, next, previous, seek)."
+      }
+    },
+    "electronDist": "node_modules/electron/dist"
+  }
+}

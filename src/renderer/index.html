@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src file: data:;" />
+  <title>Spotify Widget</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body data-bg="blurred" data-mode="not-running" data-state="stopped">
+  <div class="card" id="card">
+    <!-- Two stacked background layers; we crossfade between them on track change -->
+    <div class="bg">
+      <div class="bg-layer active" data-layer="a">
+        <img class="bg-art" alt="" draggable="false" />
+        <div class="bg-gradient"></div>
+        <div class="bg-glow"></div>
+      </div>
+      <div class="bg-layer" data-layer="b">
+        <img class="bg-art" alt="" draggable="false" />
+        <div class="bg-gradient"></div>
+        <div class="bg-glow"></div>
+      </div>
+      <div class="frost"></div>
+      <div class="scrim"></div>
+    </div>
+
+    <!-- Vinyl disc -->
+    <button class="disc-wrap" id="disc-button" title="Play / Pause" aria-label="Play or pause">
+      <div class="rotor" id="rotor">
+      <div class="disc" id="disc">
+        <img class="art active" alt="" draggable="false" />
+        <img class="art" alt="" draggable="false" />
+        <div class="placeholder">
+          <svg viewBox="0 0 24 24" width="40%" height="40%" aria-hidden="true">
+            <path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm4.6 14.4a.6.6 0 0 1-.9.2c-2.4-1.5-5.5-1.8-9-1a.6.6 0 1 1-.3-1.2c3.9-.9 7.3-.5 10 1.1.3.2.4.6.2.9zm1.2-2.8a.8.8 0 0 1-1.1.3c-2.8-1.7-7-2.2-10.3-1.2a.8.8 0 1 1-.4-1.5c3.8-1.2 8.4-.6 11.6 1.3.3.2.5.7.2 1.1zm.1-2.9C14.6 8.7 9.2 8.5 6 9.5a.9.9 0 1 1-.5-1.8c3.7-1.1 9.7-.9 13.5 1.4a.9.9 0 0 1-.9 1.6z"/>
+          </svg>
+          <span>Open Spotify</span>
+        </div>
+        <div class="grooves"></div>
+        <div class="gloss"></div>
+        <div class="spindle"></div>
+      </div>
+      </div>
+    </button>
+
+    <!-- Track info, controls, progress -->
+    <div class="info">
+      <div class="title-wrap"><div class="title" id="title">Nothing playing</div><div class="title-fade"></div></div>
+      <div class="artist" id="artist">Open Spotify to get started</div>
+      <div class="lyrics" id="lyrics" aria-live="polite">
+        <div class="lyric prev" id="lyric-prev"></div>
+        <div class="lyric now" id="lyric-now"></div>
+        <div class="lyric next" id="lyric-next"></div>
+      </div>
+
+      <div class="controls">
+        <button class="ctl" id="prev" aria-label="Previous track" title="Previous">
+          <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+        </button>
+        <button class="ctl ctl-main" id="playpause" aria-label="Play or pause" title="Play / Pause">
+          <svg class="icon-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          <svg class="icon-pause" viewBox="0 0 24 24"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+        </button>
+        <button class="ctl" id="next" aria-label="Next track" title="Next">
+          <svg viewBox="0 0 24 24"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>
+        </button>
+      </div>
+
+      <div class="progress">
+        <span class="time" id="elapsed">0:00</span>
+        <div class="bar" id="bar" role="slider" aria-label="Seek"><div class="fill" id="fill"></div><div class="knob"></div></div>
+        <span class="time" id="total">0:00</span>
+      </div>
+    </div>
+  </div>
+  <script src="renderer.js"></script>
+</body>
+</html>

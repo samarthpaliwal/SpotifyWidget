@@ -1,0 +1,93 @@
+<!doctype html>
+<!-- Dev harness: runs the real renderer against a mock window.widget so the UI can be
+     exercised in a normal browser without Spotify. Open via `npm run harness`. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Widget harness</title>
+  <link rel="stylesheet" href="../dist/renderer/styles.css" />
+  <style>
+    html, body { background: #777 !important; }
+    :root { --h: 180px; }
+    .card { position: fixed; left: 20px; top: 20px; width: 344px; height: 164px; inset: auto; }
+    #panel { position: fixed; left: 20px; top: 200px; font: 12px monospace; color: #fff; }
+    #panel button { margin: 2px; }
+  </style>
+</head>
+<body data-bg="blurred" data-mode="not-running" data-state="stopped">
+  <script>
+    // ---- mock bridge -------------------------------------------------------
+    const listeners = { np: [], settings: [], lyrics: [] };
+    const log = [];
+    window.widget = {
+      onNowPlaying: (cb) => { listeners.np.push(cb); return () => {}; },
+      onSettings: (cb) => { listeners.settings.push(cb); return () => {}; },
+      onLyrics: (cb) => { listeners.lyrics.push(cb); return () => {}; },
+      control: (cmd) => log.push('control:' + cmd),
+      seek: (s) => log.push('seek:' + s.toFixed(1)),
+      ready: () => { log.push('ready'); emitSettings({ background: 'blurred' }); },
+    };
+    const emit = (np) => listeners.np.forEach((cb) => cb(np));
+    const emitSettings = (s) => listeners.settings.forEach((cb) => cb({ size: 'medium', level: 'desktop', lyrics: false, clickThrough: false, launchAtLogin: false, visible: true, bounds: null, ...s }));
+    // tiny generated "album covers" as data URLs (dark + light) so no network is needed
+    function cover(c1, c2) {
+      const cv = document.createElement('canvas'); cv.width = cv.height = 200;
+      const g = cv.getContext('2d'); const gr = g.createLinearGradient(0, 0, 200, 200);
+      gr.addColorStop(0, c1); gr.addColorStop(1, c2); g.fillStyle = gr; g.fillRect(0, 0, 200, 200);
+      g.fillStyle = 'rgba(255,255,255,0.5)'; g.beginPath(); g.arc(140, 60, 40, 0, 7); g.fill();
+      return cv.toDataURL();
+    }
+    const tracks = {
+      dark: { id: 'spotify:track:1', name: 'Midnight City', artist: 'M83', album: 'Hurry Up', artworkUrl: 'x', durationMs: 243000,
+              artworkPath: cover('#1a0b2e', '#7b2cbf'), palette: { dominant: '#7b2cbf', accent: '#c77dff', secondary: '#c77dff', dark: '#120a1c', lightText: true } },
+      light: { id: 'spotify:track:2', name: 'A Very Long Song Title That Definitely Needs To Scroll Across The Card', artist: 'Someone With a Long Name', album: 'Album', artworkUrl: 'x', durationMs: 180000,
+               artworkPath: cover('#fff3b0', '#ffd166'), palette: { dominant: '#ffd166', accent: '#e09f00', secondary: '#fff3b0', dark: '#5a4a1f', lightText: false } },
+    };
+    window.mock = {
+      play: (t = 'dark', pos = 30) => emit({ mode: 'track', state: 'playing', track: tracks[t], positionSec: pos, sampledAt: Date.now() }),
+      pause: (t = 'dark', pos = 30) => emit({ mode: 'track', state: 'paused', track: tracks[t], positionSec: pos, sampledAt: Date.now() }),
+      ad: () => emit({ mode: 'ad', state: 'playing', track: { id: 'spotify:ad:1', name: 'Advertisement', artist: '', album: '', artworkUrl: '', artworkPath: null, durationMs: 30000, palette: null }, positionSec: 3, sampledAt: Date.now() }),
+      off: () => emit({ mode: 'not-running', state: 'stopped', track: null, positionSec: 0, sampledAt: Date.now() }),
+      bg: (b) => emitSettings({ background: b }),
+      lyrics: (on = true) => { emitSettings({ lyrics: on }); if (on) listeners.lyrics.forEach((cb) => cb({ trackId: 'spotify:track:1', synced: true, lines: [
+        { t: 28, text: 'Waiting in a car' }, { t: 31, text: 'Waiting for a ride in the dark' }, { t: 34, text: 'The night city grows' }, { t: 37, text: 'Look and see her eyes, they glow' }, { t: 40, text: 'Waiting in a car' }] })); },
+      size: (sz) => { const d = { small: [164, 164], medium: [344, 164], large: [344, 344] }[sz]; const c = document.querySelector('.card'); c.style.width = d[0] + 'px'; c.style.height = d[1] + 'px'; document.documentElement.style.setProperty('--h', (d[1] + 16) + 'px'); emitSettings({ size: sz }); },
+      log,
+    };
+  </script>
+  <div class="card" id="card">
+    <div class="bg">
+      <div class="bg-layer active" data-layer="a"><img class="bg-art" alt="" /><div class="bg-gradient"></div><div class="bg-glow"></div></div>
+      <div class="bg-layer" data-layer="b"><img class="bg-art" alt="" /><div class="bg-gradient"></div><div class="bg-glow"></div></div>
+      <div class="frost"></div><div class="scrim"></div>
+    </div>
+    <button class="disc-wrap" id="disc-button"><div class="rotor" id="rotor"><div class="disc" id="disc">
+      <img class="art active" alt="" /><img class="art" alt="" />
+      <div class="placeholder"><span>Open Spotify</span></div>
+      <div class="grooves"></div><div class="gloss"></div><div class="spindle"></div>
+    </div></div></button>
+    <div class="info">
+      <div class="title-wrap"><div class="title" id="title">Nothing playing</div><div class="title-fade"></div></div>
+      <div class="artist" id="artist">Open Spotify to get started</div>
+      <div class="lyrics" id="lyrics" aria-live="polite">
+        <div class="lyric prev" id="lyric-prev"></div>
+        <div class="lyric now" id="lyric-now"></div>
+        <div class="lyric next" id="lyric-next"></div>
+      </div>
+      <div class="controls">
+        <button class="ctl" id="prev"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></button>
+        <button class="ctl ctl-main" id="playpause"><svg class="icon-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><svg class="icon-pause" viewBox="0 0 24 24"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg></button>
+        <button class="ctl" id="next"><svg viewBox="0 0 24 24"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg></button>
+      </div>
+      <div class="progress"><span class="time" id="elapsed">0:00</span><div class="bar" id="bar"><div class="fill" id="fill"></div><div class="knob"></div></div><span class="time" id="total">0:00</span></div>
+    </div>
+  </div>
+  <div id="panel">
+    <button onclick="mock.play('dark')">play dark</button><button onclick="mock.pause('dark')">pause dark</button>
+    <button onclick="mock.play('light')">play light</button><button onclick="mock.ad()">ad</button><button onclick="mock.off()">spotify off</button>
+    <button onclick="mock.bg('gradient')">bg gradient</button><button onclick="mock.bg('frosted')">bg frosted</button><button onclick="mock.bg('blurred')">bg blurred</button>
+    <button onclick="mock.lyrics(true)">lyrics on</button><button onclick="mock.lyrics(false)">lyrics off</button><button onclick="mock.size('small')">small</button><button onclick="mock.size('medium')">medium</button><button onclick="mock.size('large')">large</button>
+  </div>
+  <script src="../dist/renderer/renderer.js"></script>
+</body>
+</html>

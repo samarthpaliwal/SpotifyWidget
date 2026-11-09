@@ -1,0 +1,368 @@
+/* ---------- Theme tokens (set from the extracted palette by renderer.ts) ---------- */
+:root {
+  --accent: #1DB954;          /* Spotify green fallback */
+  --dominant: #1DB954;
+  --secondary: #2a2f36;
+  --dark: #0e1114;
+  --text: #ffffff;
+  --muted: rgba(255, 255, 255, 0.68);
+  --scrim: rgba(0, 0, 0, 0.28);
+  --radius: 22px;             /* macOS desktop widgets use ~22px corners */
+  --pad: 8px;                 /* window inset: same as the system widgets' frame inset */
+  --card-pad: 12px;
+  --spin-duration: 1.8s;      /* ≈33⅓ RPM */
+  --marquee-shift: 0px;
+  --marquee-duration: 8s;
+  --h: 100vh;
+  /* Card height drives everything so the three size presets just scale */
+  --card-h: calc(var(--h) - var(--pad) * 2);
+  --disc: calc(var(--card-h) - var(--card-pad) * 2);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  color: var(--text);
+}
+
+/* ---------- Card ---------- */
+.card {
+  position: absolute;
+  inset: var(--pad);
+  border-radius: var(--radius);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--card-h) * 0.09);
+  padding: var(--card-pad);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(255, 255, 255, 0.08) inset;
+  transition: box-shadow 300ms ease;
+  -webkit-app-region: drag;           /* draggable by the card background */
+  background: #141619;                 /* solid fallback behind the layers */
+  isolation: isolate;
+}
+button, .bar { -webkit-app-region: no-drag; }
+
+/* Desktop-widget mode: flatter, like macOS desktop widgets (soft edge, no big drop shadow) */
+body[data-level="desktop"] .card {
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.22), 0 0 0 0.5px rgba(255, 255, 255, 0.12) inset;
+}
+
+/* ---------- Background layers ---------- */
+.bg { position: absolute; inset: 0; z-index: 0; }
+.bg-layer {
+  position: absolute; inset: 0;
+  opacity: 0;
+  transition: opacity 800ms ease;      /* crossfade between the two stacked layers */
+  --l-dominant: var(--dominant);
+  --l-secondary: var(--secondary);
+  --l-dark: var(--dark);
+}
+.bg-layer.active { opacity: 1; }
+
+/* (a) Blurred, enlarged album art. The filter is rasterised once per layer – the
+   compositor just reuses the texture while the disc spins. */
+.bg-art {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  transform: scale(1.4);
+  filter: blur(40px) saturate(1.4);
+}
+/* (b) Gradient from dominant to dark shade, keeps the card moody + readable */
+.bg-gradient {
+  position: absolute; inset: 0;
+  background: linear-gradient(110deg,
+    color-mix(in srgb, var(--l-dominant) 70%, transparent) 0%,
+    color-mix(in srgb, var(--l-secondary) 35%, transparent) 45%,
+    color-mix(in srgb, var(--l-dark) 92%, transparent) 100%);
+}
+/* (c) Radial glow behind the disc */
+.bg-glow {
+  position: absolute;
+  left: calc(var(--card-pad) + var(--disc) / 2);
+  top: 50%;
+  width: calc(var(--disc) * 1.6);
+  height: calc(var(--disc) * 1.6);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--l-dominant) 55%, transparent) 0%, transparent 65%);
+}
+.frost { position: absolute; inset: 0; opacity: 0; transition: opacity 800ms ease; pointer-events: none;
+  background:
+    radial-gradient(120% 90% at 10% 0%, rgba(255,255,255,0.10), transparent 60%),
+    linear-gradient(135deg, rgba(40,44,52,0.92), rgba(18,20,24,0.96));
+}
+.scrim { position: absolute; inset: 0; background: var(--scrim); pointer-events: none; }
+
+/* Background style switches */
+body[data-bg="gradient"] .bg-art { display: none; }
+body[data-bg="gradient"] .bg-gradient {
+  background: linear-gradient(110deg, var(--l-dominant) 0%, color-mix(in srgb, var(--l-secondary) 60%, var(--l-dark)) 55%, var(--l-dark) 100%);
+}
+body[data-bg="frosted"] .bg-layer,
+body.neutral .bg-layer { opacity: 0; }
+body[data-bg="frosted"] .frost,
+body.neutral .frost { opacity: 1; }
+body[data-mode="ad"] .frost { opacity: 1; background: linear-gradient(135deg, #4a4d52, #2a2c30); }
+body[data-mode="ad"] .bg-layer { opacity: 0; }
+
+/* ---------- Vinyl disc ---------- */
+.disc-wrap {
+  position: relative; z-index: 1;
+  flex: 0 0 var(--disc);
+  width: var(--disc); height: var(--disc);
+  border: 0; background: none; padding: 0; cursor: grab;
+  border-radius: 50%;
+  touch-action: none;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.45));
+  transition: filter 400ms ease, opacity 400ms ease;
+}
+.disc-wrap.scrubbing { cursor: grabbing; }
+/* manual rotation while the user drags the record; the spin animation lives on .disc inside */
+.rotor { position: absolute; inset: 0; border-radius: 50%; will-change: transform; }
+.disc {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #111;
+  will-change: transform;               /* own compositor layer: the spin is GPU-only */
+  transform: rotate(0deg);
+  backface-visibility: hidden;
+}
+.art {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 600ms ease;       /* crossfade on track change, angle untouched */
+}
+.art.active { opacity: 1; }
+/* thin groove rings */
+.grooves {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: repeating-radial-gradient(circle at center,
+    rgba(0,0,0,0) 0px, rgba(0,0,0,0) 3px, rgba(0,0,0,0.16) 3.5px, rgba(0,0,0,0) 4px);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+/* subtle glossy highlight that moves with the disc */
+.gloss {
+  position: absolute; inset: 0; border-radius: 50%;
+  background:
+    conic-gradient(from 200deg, rgba(255,255,255,0) 0deg, rgba(255,255,255,0.22) 40deg, rgba(255,255,255,0) 90deg,
+                   rgba(255,255,255,0) 180deg, rgba(255,255,255,0.14) 220deg, rgba(255,255,255,0) 270deg);
+  pointer-events: none;
+}
+/* centre spindle hole */
+.spindle {
+  position: absolute; left: 50%; top: 50%;
+  width: 12%; height: 12%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, #1a1a1a 0 38%, #e8e8e8 40% 58%, #2b2b2b 60% 100%);
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.5), 0 0 8px rgba(0,0,0,0.6);
+}
+.placeholder {
+  position: absolute; inset: 0; border-radius: 50%;
+  display: none; flex-direction: column; align-items: center; justify-content: center; gap: 4%;
+  background: radial-gradient(circle, #2b2e33 0%, #15171a 70%);
+  color: rgba(255,255,255,0.55);
+  font-size: calc(var(--disc) * 0.09); font-weight: 600; letter-spacing: 0.02em;
+}
+body[data-mode="not-running"] .placeholder,
+body[data-mode="idle"] .placeholder,
+body[data-mode="ad"] .placeholder,
+body.no-art .placeholder { display: flex; }
+body[data-mode="idle"] .placeholder span::after { content: ""; }
+body[data-mode="ad"] .placeholder span { font-size: calc(var(--disc) * 0.13); }
+body[data-mode="ad"] .placeholder svg { display: none; }
+body[data-mode="not-running"] .disc-wrap,
+body[data-mode="ad"] .disc-wrap { opacity: 0.55; filter: drop-shadow(0 6px 14px rgba(0,0,0,0.45)) saturate(0.2); }
+body.no-art .placeholder svg { display: none; }
+body.no-art .placeholder span { font-size: calc(var(--disc) * 0.08); }
+
+/* ---------- Info column ---------- */
+.info {
+  position: relative; z-index: 1;
+  flex: 1 1 auto; min-width: 0;
+  display: flex; flex-direction: column; justify-content: center;
+  gap: calc(var(--card-h) * 0.035);
+  height: 100%;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.35);
+}
+body.dark-text .info { text-shadow: 0 1px 2px rgba(255,255,255,0.25); }
+
+.title-wrap { position: relative; overflow: hidden; white-space: nowrap; }
+.title {
+  display: inline-block;
+  font-size: calc(var(--card-h) * 0.125);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  will-change: transform;
+}
+.title-wrap.marquee .title {
+  animation: marquee var(--marquee-duration) ease-in-out infinite alternate;
+}
+.title-fade {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 18%;
+  pointer-events: none; opacity: 0;
+  background: linear-gradient(to right, transparent, color-mix(in srgb, var(--accent) 45%, var(--dark)));
+  mix-blend-mode: normal;
+}
+.title-wrap.marquee .title-fade { opacity: 0.9; }
+@keyframes marquee {
+  0%, 12% { transform: translateX(0); }
+  88%, 100% { transform: translateX(calc(-1 * var(--marquee-shift))); }
+}
+
+.artist {
+  font-size: calc(var(--card-h) * 0.095);
+  color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ---------- Controls (fade in on hover) ---------- */
+.controls {
+  display: flex; align-items: center; gap: calc(var(--card-h) * 0.06);
+  opacity: 0; transform: translateY(2px);
+  transition: opacity 220ms ease, transform 220ms ease;
+  margin-top: calc(var(--card-h) * -0.005);
+}
+.card:hover .controls { opacity: 1; transform: none; }
+body[data-mode="not-running"] .controls,
+body[data-mode="ad"] .controls { display: none; }
+.ctl {
+  width: calc(var(--card-h) * 0.2); height: calc(var(--card-h) * 0.2);
+  border-radius: 50%; border: 0; cursor: pointer;
+  background: rgba(255,255,255,0.0);
+  color: var(--text);
+  display: grid; place-items: center;
+  transition: background 150ms ease, transform 100ms ease;
+}
+.ctl svg { width: 62%; height: 62%; fill: currentColor; }
+.ctl:hover { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+.ctl:active { transform: scale(0.92); }
+.ctl-main { background: rgba(255,255,255,0.14); }
+.icon-pause { display: none; }
+body[data-state="playing"] .icon-pause { display: block; }
+body[data-state="playing"] .icon-play { display: none; }
+
+/* ---------- Progress ---------- */
+.progress {
+  display: flex; align-items: center; gap: 8px;
+  font-size: calc(var(--card-h) * 0.075);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+body[data-mode="not-running"] .progress,
+body[data-mode="idle"] .progress { visibility: hidden; }
+.bar {
+  position: relative; flex: 1; height: 4px; border-radius: 2px;
+  background: rgba(255,255,255,0.22); cursor: pointer;
+  /* enlarge the hit area without changing the look */
+  background-clip: content-box; padding: 6px 0; box-sizing: content-box;
+}
+body.dark-text .bar { background-color: rgba(0,0,0,0.22); }
+.fill {
+  position: absolute; left: 0; top: 6px; height: 4px; width: 0%;
+  border-radius: 2px; background: var(--accent);
+  transition: width 1s linear;          /* one update per second → smooth without JS frames */
+}
+.bar.seeking .fill { transition: none; }
+.knob {
+  position: absolute; top: 50%; left: var(--knob, 0%);
+  width: 10px; height: 10px; border-radius: 50%; background: var(--text);
+  transform: translate(-50%, -50%) scale(0);
+  transition: transform 150ms ease, left 1s linear;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+.bar:hover .knob { transform: translate(-50%, -50%) scale(1); }
+.bar.seeking .knob { transition: transform 150ms ease; }
+
+/* ---------- Size presets: small (180²) and large (360²) are vertical ---------- */
+body[data-size="small"] .card,
+body[data-size="large"] .card {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0;
+}
+body[data-size="small"] .disc-wrap,
+body[data-size="large"] .disc-wrap { flex: 0 0 auto; align-self: center; }
+body[data-size="small"] .info,
+body[data-size="large"] .info { height: auto; text-align: center; align-items: center; }
+body[data-size="small"] .controls,
+body[data-size="large"] .controls { justify-content: center; }
+body[data-size="small"] .bg-glow,
+body[data-size="large"] .bg-glow { left: 50%; }
+
+/* small: 164px card → 92px disc, compact text, controls overlay the disc on hover */
+body[data-size="small"] { --disc: 92px; }
+body[data-size="small"] .disc-wrap { width: 92px; height: 92px; margin-top: 2px; }
+body[data-size="small"] .bg-glow { top: calc(var(--card-pad) + 46px); }
+body[data-size="small"] .info { margin-top: 6px; gap: 2px; }
+body[data-size="small"] .title { font-size: 13px; }
+body[data-size="small"] .artist { font-size: 11px; }
+body[data-size="small"] .progress { font-size: 9px; gap: 5px; }
+body[data-size="small"] .controls {
+  position: absolute; left: 0; right: 0; top: calc(var(--card-pad) + 46px);
+  transform: translateY(-50%); margin: 0; gap: 4px; z-index: 2;
+}
+body[data-size="small"] .card:hover .controls { transform: translateY(-50%); }
+body[data-size="small"] .ctl { width: 26px; height: 26px; background: rgba(0,0,0,0.45); }
+body[data-size="small"] .ctl-main { width: 30px; height: 30px; }
+
+/* large: 344px card → 200px disc */
+body[data-size="large"] { --disc: 200px; }
+body[data-size="large"] .disc-wrap { width: 200px; height: 200px; }
+body[data-size="large"] .bg-glow { top: calc(var(--card-pad) + 100px); }
+body[data-size="large"] .info { margin-top: 12px; gap: 6px; }
+body[data-size="large"] .title { font-size: 22px; }
+body[data-size="large"] .artist { font-size: 15px; }
+body[data-size="large"] .controls { margin: 2px 0; }
+body[data-size="large"] .ctl { width: 34px; height: 34px; }
+body[data-size="large"] .progress { font-size: 12px; }
+
+/* ---------- Lyrics (tray: Show lyrics) ---------- */
+.lyrics { display: none; flex-direction: column; gap: 1px; min-width: 0; overflow: hidden; }
+body[data-lyrics="on"].has-lyrics .lyrics { display: flex; }
+.lyric {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: calc(var(--card-h) * 0.082); line-height: 1.3;
+  transition: opacity 250ms ease, transform 250ms ease;
+}
+.lyric.now { font-weight: 600; color: var(--text); }
+.lyric.prev, .lyric.next { opacity: 0.45; color: var(--muted); font-size: calc(var(--card-h) * 0.072); }
+.lyric.prev:empty, .lyric.next:empty { display: none; }
+.lyric.now:empty::before { content: "♪"; opacity: 0.5; }
+.lyrics.unsynced .lyric.prev, .lyrics.unsynced .lyric.next { display: none; }
+
+/* With lyrics shown, the controls overlay the lyric lines on hover instead of taking space */
+body[data-lyrics="on"].has-lyrics .artist { margin-bottom: calc(var(--card-h) * 0.01); }
+body[data-lyrics="on"].has-lyrics .controls {
+  position: absolute; left: 0; right: 0; bottom: calc(var(--card-h) * 0.2);
+  margin: 0; justify-content: center; z-index: 2;
+}
+body[data-lyrics="on"].has-lyrics .card:hover .lyrics { opacity: 0.15; }
+body[data-lyrics="on"].has-lyrics .ctl { background: rgba(0,0,0,0.35); }
+body[data-lyrics="on"].has-lyrics .ctl-main { background: rgba(0,0,0,0.5); }
+body[data-lyrics="on"].has-lyrics .info { justify-content: center; gap: calc(var(--card-h) * 0.02); }
+
+/* small: lyrics replace the artist line */
+body[data-size="small"][data-lyrics="on"].has-lyrics .artist { display: none; }
+body[data-size="small"] .lyric { font-size: 11px; }
+body[data-size="small"] .lyric.prev, body[data-size="small"] .lyric.next { display: none; }
+body[data-size="small"][data-lyrics="on"].has-lyrics .controls { bottom: auto; top: calc(var(--card-pad) + 46px); transform: translateY(-50%); }
+/* large: roomy three-line view */
+body[data-size="large"] .lyric { font-size: 15px; }
+body[data-size="large"] .lyric.prev, body[data-size="large"] .lyric.next { font-size: 13px; }
+body[data-size="large"][data-lyrics="on"].has-lyrics .controls { bottom: 40px; }
