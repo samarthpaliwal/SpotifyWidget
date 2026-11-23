@@ -1,23 +1,78 @@
-# Spotify Widget for macOS
+# Spotify Widget
 
-A desktop "Now Playing" widget for the **Spotify desktop app**: a circular album cover that spins like a
-vinyl record while music plays, decelerates to a stop on pause, and a background that is derived from
-each album's artwork. It sits on the desktop like a macOS desktop widget (above the wallpaper, below
-every app window, hidden from Mission Control) and can optionally float above windows instead.
-Lives in the menu bar (no Dock icon). No login, no API keys, no OAuth: it talks
-to Spotify through its AppleScript interface.
+The current Spotify album as a vinyl record on the macOS desktop: it spins at 33⅓ RPM, scratches to seek, and needs no login or API key.
 
-![layout](https://img.shields.io/badge/macOS-13%2B-black) ![arch](https://img.shields.io/badge/Apple%20Silicon%20%7C%20Intel-blue)
+[![CI](https://github.com/samarthpaliwal/SpotifyWidget/actions/workflows/ci.yml/badge.svg)](https://github.com/samarthpaliwal/SpotifyWidget/actions/workflows/ci.yml)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue)
+![macOS 13+](https://img.shields.io/badge/macOS-13%2B-black?logo=apple)
+![Apple Silicon and Intel](https://img.shields.io/badge/Apple%20Silicon%20%7C%20Intel-blue)
 
-## Setup
+<!-- TODO: add a capture of the widget. Steps are in docs/README.md.
+<p align="center"><img src="docs/widget.gif" width="360" alt="The widget spinning the current album, then a scratch to seek"></p>
+-->
 
-```bash
-npm install
-npm start          # dev: bundles with esbuild and launches Electron
-npm run build      # produces out/mac-arm64/SpotifyWidget.app (or out/mac/ on Intel)
+## Problem
+
+Spotify's own window is the wrong shape for a glance.
+Third-party "now playing" widgets usually go through the Web API, which means registering an app, OAuth,
+a login and stored tokens, and they still learn about a track change only on their next poll.
+
+## Approach
+
+Talk to the Spotify desktop app directly through its AppleScript interface, so there is nothing to sign in
+to, and listen for the notification Spotify already broadcasts when playback changes.
+
+```mermaid
+flowchart LR
+    sp(["Spotify desktop app"]) -->|"PlaybackStateChanged<br/>distributed notification"| jxa["JXA listener<br/>long-lived osascript"]
+    jxa --> main["Main process<br/>spotify.ts"]
+    main <-->|"AppleScript: read state, play, pause, seek"| sp
+    main -->|"poll: 1 s playing · 5 s paused · 15 s hidden"| main
+    main --> art["artwork.ts + palette.ts<br/>cover cache · colour extraction"]
+    main --> lyr["lyrics.ts<br/>LRCLIB · per-track cache"]
+    art --> ipc["Typed IPC<br/>sandboxed preload"]
+    lyr --> ipc
+    main --> ipc
+    ipc --> ui["Renderer<br/>one Web Animations rotation"]
+    ui -->|"click · scratch · seek"| ipc
 ```
 
-Requirements: Node 18+, macOS 13+, Spotify desktop app installed.
+- **Instant updates without an API.** A JXA helper subscribes to Spotify's distributed notification; a
+  sleep-aware poll backs it up for position and for seeks made inside Spotify.
+- **A real desktop widget.** The window sits on the macOS desktop-widget layer, above the wallpaper and
+  below every app, at the exact system widget sizes, and snaps onto the widget grid.
+- **Colour from the artwork.** A dependency-free, saturation-weighted histogram picks the palette; text
+  flips between light and dark on its luminance.
+- **Cheap to leave running.** The spin is one Web Animations rotation with no per-frame JavaScript, and
+  everything pauses when the window is hidden.
+
+## Results
+
+- Zero runtime dependencies; Electron, esbuild and TypeScript are build-time only.
+- Two kinds of network request in total: album art from Spotify's CDN and lyrics from LRCLIB.
+- Scratch to seek (one full turn is 30 s), synced lyrics, three sizes matching macOS widgets
+  (180×180, 360×180, 360×360), desktop or floating level, launch at login.
+
+No automated tests yet; CI type-checks and bundles. `test/harness.html` runs the real renderer against a
+mock bridge for manual checks.
+
+## Quick start
+
+Requires macOS 13 or newer, Node 18 or newer, and the Spotify desktop app.
+
+```bash
+git clone https://github.com/samarthpaliwal/SpotifyWidget.git
+cd SpotifyWidget
+npm install
+npm start
+```
+
+`npm start` bundles with esbuild and launches Electron. Start a track in Spotify and allow the Automation
+prompt (see Permissions below). To build a standalone app:
+
+```bash
+npm run build      # out/mac-arm64/SpotifyWidget.app, or out/mac/ on Intel
+```
 
 ### Dependencies (all dev-time, zero runtime deps)
 
@@ -96,26 +151,7 @@ LRCLIB has nothing for a song the card simply shows no lyrics. This and the albu
 | Crossfade durations | `.bg-layer` (800 ms) and `.art` (600 ms) transitions in `styles.css`. |
 | Polling intervals | `schedule()` in `src/main/spotify.ts` (1 s playing, 5 s paused/closed, ≥15 s hidden). |
 
-## How it works
-
-```
-src/
-  main/
-    main.ts      wires everything, typed IPC handlers, power/sleep handling
-    spotify.ts   osascript reads/controls + JXA distributed-notification listener + poll scheduler
-    artwork.ts   artwork download + disk cache keyed by track id, palette cached alongside
-    lyrics.ts    LRCLIB lookup, LRC parsing, per-track cache
-    palette.ts   dependency-free colour extraction (dominant / secondary / dark / text contrast)
-    window.ts    frameless transparent window, desktop-widget or floating level, snap-to-grid, off-screen clamp
-    desktopWidgets.ts  finds macOS's own desktop widgets (CGWindowList via JXA) for level + snapping
-    tray.ts      menu-bar icon and menu
-    settings.ts  JSON settings store
-    preload.ts   contextBridge → window.widget (contextIsolation on, nodeIntegration off, sandbox on)
-  renderer/
-    index.html / styles.css / renderer.ts   the card UI, spin, crossfades, marquee, seek
-  shared/
-    types.ts     IPC payloads, settings, size presets
-```
+## Implementation notes
 
 * **Instant updates.** A long-lived `osascript -l JavaScript` helper subscribes to the
   `com.spotify.client.PlaybackStateChanged` distributed notification and prints a line per event;
@@ -137,6 +173,32 @@ src/
 
 `npm run palette-test` prints the extracted palette for every cached cover, handy when tuning
 `extractPalette()`.
+
+## Tech stack
+
+Electron, TypeScript, esbuild, AppleScript and JXA, Web Animations API. No runtime dependencies.
+
+## Project structure
+
+```
+src/
+  main/
+    main.ts            wires everything, typed IPC handlers, power and sleep handling
+    spotify.ts         osascript reads and controls, JXA notification listener, poll scheduler
+    artwork.ts         artwork download and disk cache keyed by track id
+    lyrics.ts          LRCLIB lookup, LRC parsing, per-track cache
+    palette.ts         dependency-free colour extraction
+    window.ts          frameless transparent window, desktop or floating level, snap-to-grid
+    desktopWidgets.ts  finds macOS's own desktop widgets for level and snapping
+    tray.ts            menu bar icon and menu
+    settings.ts        JSON settings store
+    preload.ts         contextBridge (contextIsolation on, nodeIntegration off, sandbox on)
+  renderer/            index.html, styles.css, renderer.ts: the card, spin, crossfades, seek
+  shared/types.ts      IPC payloads, settings, size presets
+scripts/               build, signing and debugging helpers
+test/harness.html      runs the real renderer against a mock bridge in a browser
+docs/                  media
+```
 
 ## Known limitations
 

@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # --ignore-scripts skips the Electron binary download; type-checking and bundling do not need it.
+      - run: npm ci --ignore-scripts
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Bundle
+        run: npm run bundle
